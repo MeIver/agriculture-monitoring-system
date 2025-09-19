@@ -1,0 +1,183 @@
+openapi: 3.0.0
+info:
+  title: Agriculture Monitoring System API
+  description: Comprehensive API for IoT-based precision farming operations
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@agriculture-monitoring.example.com
+servers:
+  - url: https://api.agriculture-monitoring.example.com/v1
+    description: Production server
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+    OAuth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://api.agriculture-monitoring.example.com/oauth/token
+          scopes:
+            read: Read access
+            write: Write access
+paths:
+  /sensors:
+    get:
+      summary: Get all sensors
+      description: Retrieve a list of all sensors in the system
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sensors:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Sensor'
+                  total_count:
+                    type: integer
+                  page:
+                    type: integer
+                  per_page:
+                    type: integer
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
+  /sensors/{sensor_id}:
+    get:
+      summary: Get sensor by ID
+      description: Retrieve detailed information about a specific sensor
+      parameters:
+        - name: sensor_id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sensor'
+        '404':
+          description: Sensor not found
+        '401':
+          description: Unauthorized
+  /irrigation/status:
+    get:
+      summary: Get irrigation status
+      description: Retrieve current status of irrigation systems
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IrrigationSystem'
+        '401':
+          description: Unauthorized
+  /irrigation/start:
+    post:
+      summary: Start irrigation
+      description: Start irrigation for a specific zone
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                zone:
+                  type: string
+                duration_minutes:
+                  type: integer
+                water_flow_rate:
+                  type: number
+      responses:
+        '200':
+          description: Irrigation started successfully
+        '400':
+          description: Invalid parameters
+        '401':
+          description: Unauthorized
+components:
+  schemas:
+    Sensor:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [temperature, humidity, soil_moisture, light_intensity]
+        location:
+          type: string
+        value:
+          type: number
+        unit:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, inactive, maintenance]
+        device_id:
+          type: string
+        battery_level:
+          type: number
+        calibration_data:
+          type: object
+          properties:
+            min_value:
+              type: number
+            max_value:
+              type: number
+            last_calibrated:
+              type: string
+              format: date-time
+    IrrigationSystem:
+      type: object
+      properties:
+        zone:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, paused]
+        current_flow_rate:
+          type: number
+        total_water_used:
+          type: number
+        last_activated:
+          type: string
+          format: date-time
+        schedule:
+          type: object
+          properties:
+            start_time:
+              type: string
+              format: time
+            duration_minutes:
+              type: integer
+            days_of_week:
+              type: array
+              items:
+                type: string
+            enabled:
+              type: boolean
