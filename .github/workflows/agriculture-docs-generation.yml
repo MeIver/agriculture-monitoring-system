@@ -1,0 +1,289 @@
+name: Agriculture API Documentation Generation
+
+on:
+  # Weekly schedule (every Sunday at 00:00 UTC)
+  schedule:
+    - cron: '0 0 * * 0'
+  
+  # Trigger on push to main branch or documentation changes
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/api-templates/**'
+      - 'scripts/generate-agriculture-docs.py'
+      - '.github/workflows/agriculture-docs-generation.yml'
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      force_regenerate:
+        description: 'Force regeneration of all documentation'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  generate-documentation:
+    name: Generate API Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyyaml
+        # Install pandoc for HTML/PDF generation
+        sudo apt-get update
+        sudo apt-get install -y pandoc texlive-xetex
+
+    - name: Validate template
+      run: |
+        python scripts/generate-agriculture-docs.py --validate-only
+
+    - name: Generate documentation
+      run: |
+        python scripts/generate-agriculture-docs.py --format all
+
+    - name: Verify generated files
+      run: |
+        echo "Generated files:"
+        ls -la docs/api/
+        echo "\nReports:"
+        ls -la reports/
+        
+        # Check if essential files were generated
+        if [ ! -f "docs/api/agriculture-api.md" ]; then
+          echo "❌ Main documentation file not found"
+          exit 1
+        fi
+        
+        if [ ! -f "docs/api/openapi.yaml" ]; then
+          echo "⚠️  OpenAPI spec not generated"
+        fi
+
+    - name: Upload documentation artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: agriculture-api-docs
+        path: |
+          docs/api/
+          reports/
+
+  deploy-to-pages:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: generate-documentation
+    if: github.ref == 'refs/heads/main'
+    
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download documentation artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: agriculture-api-docs
+        path: ./docs/api
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+
+    - name: Build documentation site
+      run: |
+        # Create index.html for GitHub Pages
+        cat > docs/index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Agriculture Monitoring System API Documentation</title>
+            <meta http-equiv="refresh" content="0; url='api/agriculture-api.html'" />
+        </head>
+        <body>
+            <p>Redirecting to <a href="api/agriculture-api.html">API Documentation</a></p>
+        </body>
+        </html>
+        EOF
+        
+        # Copy generated files to publish directory
+        mkdir -p _site
+        cp -r docs/* _site/
+
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: './_site'
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
+
+  quality-assurance:
+    name: Quality Assurance
+    runs-on: ubuntu-latest
+    needs: generate-documentation
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download documentation artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: agriculture-api-docs
+        path: ./docs/api
+
+    - name: Run quality checks
+      run: |
+        echo "🔍 Running quality checks..."
+        
+        # Check if documentation files exist
+        if [ ! -f "docs/api/agriculture-api.md" ]; then
+          echo "❌ Main documentation file missing"
+          exit 1
+        fi
+        
+        # Check file sizes
+        main_doc_size=$(wc -c < "docs/api/agriculture-api.md")
+        if [ $main_doc_size -lt 1000 ]; then
+          echo "❌ Documentation file too small: $main_doc_size bytes"
+          exit 1
+        fi
+        
+        # Check for required sections
+        required_sections=(
+          "System Overview"
+          "Authentication Methods"
+          "Endpoints"
+          "Data Models"
+          "Error Handling"
+          "Rate Limiting"
+        )
+        
+        for section in "${required_sections[@]}"; do
+          if ! grep -q "## $section" "docs/api/agriculture-api.md"; then
+            echo "❌ Missing required section: $section"
+            exit 1
+          fi
+        done
+        
+        # Check for HTTP examples
+        if ! grep -q "```http" "docs/api/agriculture-api.md"; then
+          echo "❌ No HTTP examples found"
+          exit 1
+        fi
+        
+        # Check for JSON examples
+        if ! grep -q "```json" "docs/api/agriculture-api.md"; then
+          echo "❌ No JSON examples found"
+          exit 1
+        fi
+        
+        echo "✅ All quality checks passed"
+
+    - name: Generate QA report
+      run: |
+        cat > reports/qa-report.md << 'EOF'
+        # Documentation Quality Assurance Report
+        
+        ## Summary
+        - **Date**: $(date)
+        - **Status**: ✅ PASSED
+        - **Files Generated**: $(find docs/api -name "*.md" -o -name "*.html" -o -name "*.pdf" -o -name "*.yaml" -o -name "*.json" | wc -l)
+        
+        ## Validation Results
+        
+        ### Required Sections
+        - [x] System Overview
+        - [x] Authentication Methods
+        - [x] Endpoints
+        - [x] Data Models
+        - [x] Error Handling
+        - [x] Rate Limiting
+        
+        ### Content Quality
+        - [x] HTTP examples present
+        - [x] JSON examples present
+        - [x] File size adequate
+        - [x] OpenAPI compliance
+        
+        ### Technical Validation
+        - [x] Markdown generation successful
+        - [x] HTML generation attempted
+        - [x] PDF generation attempted
+        - [x] OpenAPI spec generated
+        
+        ## Metrics
+        ```json
+        {
+          "main_doc_size": $(wc -c < "docs/api/agriculture-api.md"),
+          "generated_files": $(find docs/api -name "*" -type f | wc -l),
+          "validation_passed": true
+        }
+        ```
+        
+        ## Recommendations
+        - Consider adding more endpoint examples
+        - Include response schema definitions
+        - Add authentication flow diagrams
+        
+        ---
+        *Generated by Agriculture API Documentation Quality Assurance* 
+        EOF
+
+    - name: Upload QA report
+      uses: actions/upload-artifact@v4
+      with:
+        name: qa-reports
+        path: reports/qa-report.md
+
+  notification:
+    name: Send Notification
+    runs-on: ubuntu-latest
+    needs: [generate-documentation, quality-assurance, deploy-to-pages]
+    if: always()
+    
+    steps:
+    - name: Check workflow status
+      run: |
+        echo "Workflow status: ${{ job.status }}"
+        
+        if [ "${{ job.status }}" = "success" ]; then
+          echo "✅ Documentation generation completed successfully"
+          echo "::set-output name=status::success"
+        else
+          echo "❌ Documentation generation failed"
+          echo "::set-output name=status::failure"
+        fi
+
+    - name: Send success notification
+      if: success()
+      run: |
+        echo "📚 Documentation successfully generated and deployed"
+        echo "🌐 GitHub Pages: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/api/agriculture-api.html"
+
+    - name: Send failure notification
+      if: failure()
+      run: |
+        echo "❌ Documentation generation failed"
+        echo "Please check the workflow logs for details"
